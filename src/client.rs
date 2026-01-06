@@ -100,24 +100,18 @@ pub fn handle_client_read(
 
 			// Detect end of the request header.
 			if client.read_buf.windows(4).any(|w| w == b"\r\n\r\n") {
-				//utils::debug_print_request(client);
 				let mut chunk = false;
+				let read_buf_clone = client.read_buf.clone();
+                let res = req.parse(&read_buf_clone).unwrap();
+				utils::debug_print_request(&req, &res);
 
-                let result = req.parse(&client.read_buf).unwrap();
-                println!("Method: {:?}", req.method);
-                println!("Path: {:?}", req.path);
-                println!("Version: {:?}", req.version);
-                for header in req.headers.iter() {
-                    println!("Header: {}: {}", header.name, String::from_utf8_lossy(header.value));
-					if header.name == "Transfer-Encoding" && str::from_utf8(header.value).unwrap() == "chunked" {
-						chunk = true;
-					}
-                }
-                println!("Request is {}", if result.is_complete() { "complete" } else { "partial" });
+                if req.headers.iter().any(|h| h.name == "Transfer-Encoding" && str::from_utf8(h.value).unwrap() == "chunked") {
+					chunk = true;
+				}
 
 				let mut header_offset = 0;
 
-				match result {
+				match res {
 					Status::Complete(i) => header_offset = i,
 					Status::Partial => {},
 				}
