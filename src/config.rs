@@ -25,11 +25,9 @@ pub struct Route {
 	pub path: String,
 	pub methods: Vec<String>,
 	pub redirect: Option<String>,
-	pub root: Option<String>,
 	pub index: Option<String>,
 	pub cgi_extension: Option<String>,
 	pub cgi_path: Option<String>,
-	pub autoindex: bool,
 }
 
 
@@ -83,7 +81,9 @@ where
 
 		match parts[0] {
 			"host" => host = parts[1].to_string(),
-			"port" => ports.push(parts[1].parse().unwrap()),
+			"ports" => {
+				ports = parts[1..].iter().map(|s| s.parse::<u16>().unwrap()).collect();
+			}
 			"server_name" => server_name = Some(parts[1].to_string()),
 			"client_max_body_size" => {
 				client_max_body_size = parts[1].parse().unwrap()
@@ -115,11 +115,9 @@ where
 {
 	let mut methods = Vec::new();
 	let mut redirect = None;
-	let mut root = None;
 	let mut index = None;
 	let mut cgi_extension = None;
 	let mut cgi_path = None;
-	let mut autoindex = false;
 
 	while let Some(line) = lines.next() {
 		if line == "}" {
@@ -136,11 +134,9 @@ where
 				methods = parts[1..].iter().map(|s| s.to_string()).collect();
 			}
 			"redirect" => redirect = Some(parts[1].to_string()),
-			"root" => root = Some(parts[1].to_string()),
-			"index" => index = Some(parts[1].to_string()),
+			"page" => index = Some(parts[1].to_string()),
 			"cgi_ext" => cgi_extension = Some(parts[1].to_string()),
 			"cgi_path" => cgi_path = Some(parts[1].to_string()),
-			"autoindex" => autoindex = parts[1] == "on",
 			_ => {}
 		}
 	}
@@ -149,11 +145,9 @@ where
 		path: path.to_string(),
 		methods,
 		redirect,
-		root,
 		index,
 		cgi_extension,
 		cgi_path,
-		autoindex,
 	})
 }
 
