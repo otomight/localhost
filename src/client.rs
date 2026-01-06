@@ -75,6 +75,8 @@ pub fn handle_client_read(
 	};
 
 	let mut buf = [0u8; BUFFER_SIZE];
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut req = httparse::Request::new(&mut headers);
 
 	loop {
 		// Fill buffer and return the read bytes.
@@ -86,9 +88,12 @@ pub fn handle_client_read(
 
 			// Detect end of the request header.
 			if client.read_buf.windows(4).any(|w| w == b"\r\n\r\n") {
-				utils::debug_print_request(client);
+                let read_buf_clone = client.read_buf.clone();
+                let res = req.parse(&read_buf_clone).unwrap();
+                utils::debug_print_request(&req, &res);
+
 				client.read_buf.clear(); // Clear read buffer.
-				prepare_response(epoll_fd, fd, client);
+				prepare_response(epoll_fd, fd, client, &req, res);
 				break;
 			}
 		} else if n == 0 {
@@ -141,7 +146,13 @@ pub fn handle_client_write(
 
 /// Write the buffer of the client and set its epoll config with write access.
 /// The response will be treated by epoll at the next event check in the main loop.
-fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client) {
+fn prepare_response(
+    epoll_fd: RawFd,
+    fd: RawFd,
+    client: &mut Client,
+    request: &httparse::Request,
+    result: httparse::Status<usize>
+) {
 	let body = b"<html><body><h1>It works</h1></body></html>";
 
 	let headers = format!(

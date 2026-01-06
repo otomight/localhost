@@ -1,17 +1,13 @@
 //! Utilitaries functions.
 
-use crate::client::Client;
-
-pub fn debug_print_request(client: &Client) {
-	match std::str::from_utf8(&client.read_buf) {
-		Ok(text) => {
-			println!("--- HTTP REQUEST BEGIN ---");
-			println!("{}", text);
-			println!("--- HTTP REQUEST END ---");
-		}
-		Err(_) => {
-			println!("--- HTTP REQUEST (non-UTF8) ---");
-			println!("{:?}", client.read_buf);
-		}
-	}
+pub fn debug_print_request(request: &httparse::Request, result: &httparse::Status<usize>) {
+    println!("\n--- HTTP REQUEST BEGIN ---");
+	println!("Method: {:?}", request.method);
+    println!("Path: {:?}", request.path);
+    println!("Version: {:?}", request.version);
+    for header in request.headers.iter() {
+        println!("Header: {}: {}", header.name, String::from_utf8_lossy(header.value));
+    }
+    println!("Request is {}", if result.is_complete() { "complete" } else { "partial" });
+    println!("--- HTTP REQUEST END ---\n");
 }
