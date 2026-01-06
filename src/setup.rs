@@ -1,22 +1,43 @@
 //! Server setup.
 
-use std::{net::TcpListener, os::fd::{AsRawFd, RawFd}};
+use std::{collections::HashMap, net::TcpListener, os::fd::{AsRawFd, RawFd}};
 
 use libc::{EPOLL_CTL_ADD, EPOLLIN, epoll_create1, epoll_ctl, epoll_event};
 
-use crate::config;
+use crate::config::{self, ServerConfig};
 
-pub fn create_listeners(cfg: &config::ServerConfig) -> Vec<TcpListener> {
-	let mut listeners = Vec::new();
+pub struct ListenerCtx {
+	pub listener: TcpListener,
+	pub servers: Vec<ServerConfig>
+}
 
-	for port in &cfg.ports {
-		let listener = TcpListener::bind((cfg.host.to_string(), *port))
+pub fn create_listeners(cfg: &config::Config) -> HashMap<RawFd, ListenerCtx> {
+	let mut map: HashMap<(String, u16), Vec<config::ServerConfig>>
+		= HashMap::new();
+
+	// Group servers by (host, port).
+	for server in &cfg.servers {
+		for port in &server.ports {
+			map.entry((server.host.clone(), *port))
+				.or_insert(Vec::new())
+				.push(server.clone());
+		}
+	}
+
+	// Create ONE listener per (host, port).
+	let mut listeners = HashMap::new();
+
+	for ((host, port), servers) in map {
+		let listener = TcpListener::bind((host.as_str(), port))
 			.expect("bind failed");
 
 		listener.set_nonblocking(true).unwrap();
 		println!("Listening on port {}", port);
 
-		listeners.push(listener);
+		listeners.insert(listener.as_raw_fd(), ListenerCtx {
+			listener,
+			servers,
+		});
 	}
 
 	return listeners
@@ -27,7 +48,7 @@ pub fn create_listeners(cfg: &config::ServerConfig) -> Vec<TcpListener> {
    Primary features are adding client file descriptors, detecting incoming requests,
    managing their read and write rights and removing client at the end of the connection.
 */
-pub fn setup_epoll(listeners: &[TcpListener]) -> RawFd {
+pub fn setup_epoll(listeners: &HashMap<RawFd, ListenerCtx>) -> RawFd {
 	unsafe {
 		let epoll_fd = epoll_create1(0);
 		if epoll_fd < 0 {
@@ -35,13 +56,12 @@ pub fn setup_epoll(listeners: &[TcpListener]) -> RawFd {
 		}
 
 		for listener in listeners {
-			let fd = listener.as_raw_fd();
 			let mut event = epoll_event {
 				events: EPOLLIN as u32,
-				u64: fd as u64,
+				u64: *listener.0 as u64,
 			};
 			// Add new file descriptor to epoll with read acess.
-			epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &mut event);
+			epoll_ctl(epoll_fd, EPOLL_CTL_ADD, *listener.0, &mut event);
 		}
 
 		return epoll_fd

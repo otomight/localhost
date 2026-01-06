@@ -10,10 +10,12 @@ use libc::{
 };
 
 use crate::global::BUFFER_SIZE;
+use crate::setup::ListenerCtx;
 use crate::utils;
 
 pub struct Client {
 	pub fd: RawFd,
+	pub listener_fd: RawFd,
 	pub read_buf: Vec<u8>,
 	pub write_buf: Vec<u8>,
 	pub write_offset: usize,
@@ -29,11 +31,12 @@ fn set_nonblocking(fd: RawFd) {
 /// Accept new incoming client connections.
 pub fn handle_listener_event(
 	epoll_fd: RawFd,
-	listener: &TcpListener,
+	listener_ctx: &ListenerCtx,
+	listener_fd: RawFd,
 	clients: &mut HashMap<RawFd, Client>,
 ) {
 	loop {
-		match listener.accept() {
+		match listener_ctx.listener.accept() {
 			Ok((stream, _)) => {
 				// Transfer client stream ownership to a file descriptor.
 				let fd = stream.into_raw_fd();
@@ -51,6 +54,7 @@ pub fn handle_listener_event(
 
 				clients.insert(fd, Client {
 					fd,
+					listener_fd,
 					read_buf: Vec::new(),
 					write_buf: Vec::new(),
 					write_offset: 0,
@@ -67,13 +71,20 @@ pub fn handle_client_read(
 	epoll_fd: RawFd,
 	fd: RawFd,
 	clients: &mut HashMap<RawFd, Client>,
+	listeners: &HashMap<RawFd, ListenerCtx>,
 ) {
 	// Get client from hashmap table.
 	let client = match clients.get_mut(&fd) {
 		Some(c) => c,
 		None => return,
 	};
-
+	let listener_ctx = match listeners.get(&client.listener_fd) {
+		Some(l) => l,
+		None => {
+			close_client(epoll_fd, client.fd, clients);
+			return;
+		}
+	};
 	let mut buf = [0u8; BUFFER_SIZE];
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
@@ -91,7 +102,6 @@ pub fn handle_client_read(
                 let read_buf_clone = client.read_buf.clone();
                 let res = req.parse(&read_buf_clone).unwrap();
                 utils::debug_print_request(&req, &res);
-
 				client.read_buf.clear(); // Clear read buffer.
 				prepare_response(epoll_fd, fd, client, &req, res);
 				break;
