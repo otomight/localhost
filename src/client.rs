@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::net::{TcpListener};
 use std::os::fd::IntoRawFd;
 use std::os::unix::io::RawFd;
+use std::fs;
 use httparse::{Header, Status};
 use libc::{
 	EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
@@ -223,14 +224,23 @@ pub fn handle_client_write(
 
 /// Write the buffer of the client and set its epoll config with write access.
 /// The response will be treated by epoll at the next event check in the main loop.
-fn prepare_response(
-    epoll_fd: RawFd,
-    fd: RawFd,
-    client: &mut Client,
-    request: &httparse::Request,
-    result: httparse::Status<usize>
-) {
-	let body = b"<html><body><h1>It works</h1></body></html>";
+fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client) {
+	let body = match fs::read_to_string("template/index.html") {
+		Ok(content) => content,
+		Err(_) => {
+			let error_body = b"<html><body><h1>404 Not Found</h1></body></html>".to_vec();
+			client.write_buf = format!(
+				"HTTP/1.1 404 Not Found\r\n\
+	Content-Length: {}\r\n\
+	Content-Type: text/html\r\n\
+	Connection: close\r\n\r\n",
+				error_body.len()
+			)
+			.into_bytes();
+			client.write_buf.extend_from_slice(&error_body);
+			return;
+		}
+	};
 
 	let headers = format!(
 		"HTTP/1.1 200 OK\r\n\
@@ -241,7 +251,7 @@ Connection: close\r\n\r\n",
 	);
 
 	client.write_buf = headers.into_bytes();
-	client.write_buf.extend_from_slice(body);
+	client.write_buf.extend_from_slice(body.as_bytes());
 
 	let mut event = epoll_event {
 		events: EPOLLOUT as u32,

@@ -93,6 +93,7 @@ fn main() {
 			return;
 		}
 	};
+	println!("{:?}", config);
 
 	let listeners = setup::create_listeners(&config);
 	let epoll_fd = setup::setup_epoll(&listeners);

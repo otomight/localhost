@@ -25,7 +25,7 @@ pub struct Route {
 	pub path: String,
 	pub methods: Vec<String>,
 	pub redirect: Option<String>,
-	pub index: Option<String>,
+	pub page: Option<String>,
 	pub cgi_extension: Option<String>,
 	pub cgi_path: Option<String>,
 }
@@ -115,7 +115,7 @@ where
 {
 	let mut methods = Vec::new();
 	let mut redirect = None;
-	let mut index = None;
+	let mut page = None;
 	let mut cgi_extension = None;
 	let mut cgi_path = None;
 
@@ -134,7 +134,7 @@ where
 				methods = parts[1..].iter().map(|s| s.to_string()).collect();
 			}
 			"redirect" => redirect = Some(parts[1].to_string()),
-			"page" => index = Some(parts[1].to_string()),
+			"page" => page = Some(parts[1].to_string()),
 			"cgi_ext" => cgi_extension = Some(parts[1].to_string()),
 			"cgi_path" => cgi_path = Some(parts[1].to_string()),
 			_ => {}
@@ -145,7 +145,7 @@ where
 		path: path.to_string(),
 		methods,
 		redirect,
-		index,
+		page,
 		cgi_extension,
 		cgi_path,
 	})
