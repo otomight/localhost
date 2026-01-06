@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::net::{TcpListener};
 use std::os::fd::IntoRawFd;
 use std::os::unix::io::RawFd;
+use httparse::{Header, Status};
 use libc::{
 	EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
 	EPOLLIN, EPOLLOUT, F_SETFL, O_NONBLOCK, epoll_ctl, epoll_event, fcntl
@@ -99,9 +100,41 @@ pub fn handle_client_read(
 
 			// Detect end of the request header.
 			if client.read_buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                let read_buf_clone = client.read_buf.clone();
-                let res = req.parse(&read_buf_clone).unwrap();
-                utils::debug_print_request(&req, &res);
+				//utils::debug_print_request(client);
+				let mut chunk = false;
+
+                let result = req.parse(&client.read_buf).unwrap();
+                println!("Method: {:?}", req.method);
+                println!("Path: {:?}", req.path);
+                println!("Version: {:?}", req.version);
+                for header in req.headers.iter() {
+                    println!("Header: {}: {}", header.name, String::from_utf8_lossy(header.value));
+					if header.name == "Transfer-Encoding" && str::from_utf8(header.value).unwrap() == "chunked" {
+						chunk = true;
+					}
+                }
+                println!("Request is {}", if result.is_complete() { "complete" } else { "partial" });
+
+				let mut header_offset = 0;
+
+				match result {
+					Status::Complete(i) => header_offset = i,
+					Status::Partial => {},
+				}
+
+				if header_offset != 0 {
+					let body = &client.read_buf[header_offset..n as usize];
+					if chunk {
+						//treatment for chunked requests (maybe body isn't read properly, see later)
+						println!("CHUNKED");
+					} else {
+						//treatment for not chunked requests
+						println!("NOT CHUNKED");
+					}
+					//test to see body, remove later
+					println!("Body: {}", String::from_utf8_lossy(body))
+				}
+
 				client.read_buf.clear(); // Clear read buffer.
 				prepare_response(epoll_fd, fd, client, &req, res);
 				break;
