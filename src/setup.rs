@@ -13,7 +13,7 @@ pub struct ListenerCtx {
 }
 
 pub fn create_listeners(cfg: &config::Config) -> HashMap<RawFd, ListenerCtx> {
-	let mut map: HashMap<(String, u16), Vec<config::ServerConfig>>
+	let mut map: HashMap<(String, u16), Vec<ServerConfig>>
 		= HashMap::new();
 
 	// Group servers by (host, port).

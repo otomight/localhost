@@ -13,8 +13,8 @@ use libc::{
 
 use crate::global::BUFFER_SIZE;
 use crate::setup::ListenerCtx;
-use crate::utils;
-use crate::router::{self, Response};
+use crate::{config, utils};
+use crate::router::{self, ResponseCore, ResponseAction};
 
 pub struct Client {
 	pub fd: RawFd,
@@ -172,8 +172,8 @@ pub fn handle_client_read(
 				println!("Body: {}", String::from_utf8_lossy(body_treated.as_slice()));
 
 				client.read_buf.clear(); // Clear read buffer.
-				let resp = router::router(listener_ctx, req, res, body); // Check & redirect to which handler/cgi we need, if not errors
-				prepare_response(epoll_fd, fd, client, &resp);
+				let resp = router::router(listener_ctx, req, body); // Give back where and what to do
+				prepare_response(epoll_fd, fd, client, resp);
 				break;
 			}
 		} else if n == 0 {
@@ -228,23 +228,43 @@ pub fn handle_client_write(
 
 /// Write the buffer of the client and set its epoll config with write access.
 /// The response will be treated by epoll at the next event check in the main loop.
-fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: &Response) {
-	let body_bytes: Vec<u8> = if let Some(p) = resp.path {
-        match fs::read(p) {
-            Ok(content) => content,
-			Err(_) => resp.default_body.unwrap_or(b"").to_vec(),
-        }
-    } else {
-        resp.default_body.unwrap_or(b"").to_vec()
-    };
+fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: ResponseCore) {
+	let mut body_bytes: Vec<u8> = Vec::new();
+	let mut header_location: String = String::new();
+	match resp.action {
+		ResponseAction::ServeFile { path } => {
+			body_bytes = match fs::read(path) {
+				Ok(content) => content,
+				Err(_) => (b"").to_vec(),
+			}
+		},
+		ResponseAction::Error {server} => {
+			let code = resp.status_code;
+			// If config && path, serve custom errors (errors/4xx.html), else minimal fallback
+			if let Some(cfg) = server {
+				if let Some(path) = cfg.error_pages.get(&code) {
+					if let Ok(bytes) = fs::read(path) {
+						body_bytes = bytes;
+					}
+				}
+			} else {
+				body_bytes = format!(
+					"<html><head><title>{0} {1}</title></head>\
+					<body><h1>{0} {1}</h1></body></html>",
+					code, resp.status_text
+				).into_bytes();
+			}
+		},
+		ResponseAction::Redirect { location } => {
+			header_location = location
+		},
+		ResponseAction::AutoIndex { dir } => {
 
-	let resp_headers = match &resp.headers {
-		Some(h) =>
-			h.iter()
-			.map(|t| t.0.clone() + ": " + &(t.1))
-			.reduce(|acc, s| acc + &s + "\r\n").unwrap(),
-		None => String::new(),
-	};
+		},
+		ResponseAction::Cgi { script } => {
+
+		},
+	}
 
     let headers = format!(
         "HTTP/1.1 {} {}\r\n\
@@ -256,7 +276,7 @@ Connection: close\r\n
         resp.status_code,
         resp.status_text,
         body_bytes.len(),
-		resp_headers,
+		header_location,
     );
 
     client.write_buf = headers.into_bytes();
