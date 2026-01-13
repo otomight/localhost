@@ -14,6 +14,7 @@ use libc::{
 use crate::global::BUFFER_SIZE;
 use crate::setup::ListenerCtx;
 use crate::utils;
+use crate::router::{self, Response};
 
 pub struct Client {
 	pub fd: RawFd,
@@ -117,13 +118,15 @@ pub fn handle_client_read(
 					Status::Partial => {},
 				}
 
+				let body = &read_buf_clone[header_offset..n as usize];
+
 				let mut body_buf = &client.read_buf[header_offset..n as usize];
 				let mut body_treated: Vec<u8> = Vec::new();
 
 				if chunk {
 					//treatment for chunked requests (maybe body isn't read properly, see later)
 					// Les données arrivent en flux, il faut donc garder la connection ouverte et lire le(s) chunk(s) reçu et les concatener jusqu'a recevoir le chunk de fin (taille 0)
-					// IMPORTANT : 
+					// IMPORTANT :
 					// chaque chunk ne créé pas de nouvelle requête
 					println!("CHUNKED");
 					let mut buf_index: usize = 0;
@@ -169,7 +172,8 @@ pub fn handle_client_read(
 				println!("Body: {}", String::from_utf8_lossy(body_treated.as_slice()));
 
 				client.read_buf.clear(); // Clear read buffer.
-				prepare_response(epoll_fd, fd, client, &req, res);
+				let resp = router::router(listener_ctx, req, res, body); // Check & redirect to which handler/cgi we need, if not errors
+				prepare_response(epoll_fd, fd, client, &resp);
 				break;
 			}
 		} else if n == 0 {
@@ -224,34 +228,40 @@ pub fn handle_client_write(
 
 /// Write the buffer of the client and set its epoll config with write access.
 /// The response will be treated by epoll at the next event check in the main loop.
-fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client) {
-	let body = match fs::read_to_string("template/index.html") {
-		Ok(content) => content,
-		Err(_) => {
-			let error_body = b"<html><body><h1>404 Not Found</h1></body></html>".to_vec();
-			client.write_buf = format!(
-				"HTTP/1.1 404 Not Found\r\n\
-	Content-Length: {}\r\n\
-	Content-Type: text/html\r\n\
-	Connection: close\r\n\r\n",
-				error_body.len()
-			)
-			.into_bytes();
-			client.write_buf.extend_from_slice(&error_body);
-			return;
-		}
+fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: &Response) {
+	let body_bytes: Vec<u8> = if let Some(p) = resp.path {
+        match fs::read(p) {
+            Ok(content) => content,
+			Err(_) => resp.default_body.unwrap_or(b"").to_vec(),
+        }
+    } else {
+        resp.default_body.unwrap_or(b"").to_vec()
+    };
+
+	let resp_headers = match &resp.headers {
+		Some(h) =>
+			h.iter()
+			.map(|t| t.0.clone() + ": " + &(t.1))
+			.reduce(|acc, s| acc + &s + "\r\n").unwrap(),
+		None => String::new(),
 	};
 
-	let headers = format!(
-		"HTTP/1.1 200 OK\r\n\
+    let headers = format!(
+        "HTTP/1.1 {} {}\r\n\
 Content-Length: {}\r\n\
-Content-Type: text/html\r\n\
-Connection: close\r\n\r\n",
-		body.len()
-	);
+Content-Type: text/html; charset=UTF-8\r\n\
+Connection: close\r\n
+{}
+\r\n",
+        resp.status_code,
+        resp.status_text,
+        body_bytes.len(),
+		resp_headers,
+    );
 
-	client.write_buf = headers.into_bytes();
-	client.write_buf.extend_from_slice(body.as_bytes());
+    client.write_buf = headers.into_bytes();
+    client.write_buf.extend_from_slice(&body_bytes);
+
 
 	let mut event = epoll_event {
 		events: EPOLLOUT as u32,

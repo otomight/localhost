@@ -6,6 +6,7 @@ use libc::{EPOLL_CTL_ADD, EPOLLIN, epoll_create1, epoll_ctl, epoll_event};
 
 use crate::config::{self, ServerConfig};
 
+#[derive(Debug)]
 pub struct ListenerCtx {
 	pub listener: TcpListener,
 	pub servers: Vec<ServerConfig>

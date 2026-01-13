@@ -10,7 +10,7 @@ pub struct Config {
 	pub servers: Vec<ServerConfig>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerConfig {
 	pub host: String,
 	pub ports: Vec<u16>,
@@ -20,14 +20,16 @@ pub struct ServerConfig {
 	pub routes: Vec<Route>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route {
 	pub path: String,
 	pub methods: Vec<String>,
 	pub redirect: Option<String>,
+	pub root: Option<String>,
 	pub page: Option<String>,
 	pub cgi_extension: Option<String>,
 	pub cgi_path: Option<String>,
+	pub autoindex: bool,
 }
 
 
@@ -115,9 +117,11 @@ where
 {
 	let mut methods = Vec::new();
 	let mut redirect = None;
+	let mut root = None;
 	let mut page = None;
 	let mut cgi_extension = None;
 	let mut cgi_path = None;
+	let mut autoindex = false;
 
 	while let Some(line) = lines.next() {
 		if line == "}" {
@@ -134,9 +138,11 @@ where
 				methods = parts[1..].iter().map(|s| s.to_string()).collect();
 			}
 			"redirect" => redirect = Some(parts[1].to_string()),
+			"root" => root = Some(parts[1].to_string()),
 			"page" => page = Some(parts[1].to_string()),
 			"cgi_ext" => cgi_extension = Some(parts[1].to_string()),
 			"cgi_path" => cgi_path = Some(parts[1].to_string()),
+			"autoindex" => autoindex = parts[1] == "on",
 			_ => {}
 		}
 	}
@@ -145,9 +151,11 @@ where
 		path: path.to_string(),
 		methods,
 		redirect,
+		root,
 		page,
 		cgi_extension,
 		cgi_path,
+		autoindex,
 	})
 }
 

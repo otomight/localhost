@@ -15,13 +15,16 @@ server {
 	# Routing
 	route / { 						# Index route with methods
 		methods GET POST DELETE
+		root template/
 		page index.html
 	}
 	route /program { 				# Program route with CGI in python
 		methods GET
+		root cgi-bin/
 		cgi_ext .py
 		cgi_path /usr/bin/python3
+		autoindex off				# Listing Dir when no path
 	}
 }
 ```
-> In `route { ... }`, only methods is mandatory, all other options (`redirect`,`page`,`cgi_ext`, `cgi_path`) are optional, `cgi_[...]` are always together.
+> In `route { ... }`, only methods is mandatory, all other options (`redirect`,`root`,`page`,`cgi_ext`, `cgi_path`, `autoindex`) are optional, `cgi_[...]` are always together.

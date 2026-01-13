@@ -3,6 +3,7 @@ mod utils;
 mod global;
 mod setup;
 mod client;
+mod router;
 
 use std::collections::HashMap;
 use std::os::unix::io::RawFd;
