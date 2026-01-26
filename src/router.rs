@@ -81,7 +81,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         return redirect_301(redirect)
     }
     // CGI
-    let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script."
+    let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script.py"
     let mut script_path = PathBuf::from(path.root.as_ref().unwrap());
     script_path.push(relative);  // "cgi-bin/script.py"
 

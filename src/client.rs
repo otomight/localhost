@@ -17,12 +17,14 @@ use crate::setup::ListenerCtx;
 use crate::{config, utils};
 use crate::router::{self, ResponseCore, ResponseAction};
 
+#[derive(Debug)]
 pub enum BodyMode {
     None,
     ContentLength(usize),
     Chunked,
 }
 
+#[derive(Debug)]
 pub enum ChunkState {
     Size,
     Data(usize),
@@ -30,6 +32,7 @@ pub enum ChunkState {
     Done,
 }
 
+#[derive(Debug)]
 pub struct ParsedRequest {
 	pub method: Option<String>,
     pub path: Option<String>,
@@ -267,8 +270,8 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 			method,
 			body,
 		} => {
-			let cmd = Command::new("exec")
-				.args([interpreter, path, method, body])
+			let cmd = Command::new(interpreter)
+				.args([path, method, String::from_utf8(body).unwrap()])
 				.output()
 				.expect("ERREUR EXECUTION CGI");
 			body_bytes = cmd.stdout
