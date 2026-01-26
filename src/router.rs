@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use httparse::Request;
-
-use crate::{config::{Route, ServerConfig}, setup::ListenerCtx};
+use crate::{client::ParsedRequest, config::{Route, ServerConfig}, setup::ListenerCtx};
 
 pub enum ResponseAction<'a> {
     ServeFile { path: String },
@@ -18,7 +16,7 @@ pub struct ResponseCore<'a> {
     pub action: ResponseAction<'a>,
 }
 
-pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: Request, body: &[u8]) -> ResponseCore<'a> {
+pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> ResponseCore<'a> {
     let req_path = match req.path {
         Some(p) => p,
         None => return http_error(400, None), // Error 400
@@ -27,16 +25,20 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: Request, body: &[u8]) -> R
         Some(m) => m,
         None => return http_error(400, None), // Error 400
     };
-    let host_header = match req.headers
-    .iter()
-    .find(|h| h.name.eq_ignore_ascii_case("Host")) {
+    let headers = match &req.headers {
         Some(h) => h,
         None => return http_error(400, None), // Error 400
     };
+    let host_header = headers
+    .iter()
+    .find(|(key, _)| key.eq_ignore_ascii_case("host"));
 
-    let host_str = match std::str::from_utf8(host_header.value) {
-        Ok(s) => s,
-        Err(_) => return http_error(400, None), // Error 400
+    let host_str = match host_header {
+        Some((_, value)) => match std::str::from_utf8(value) {
+            Ok(s) => s,
+            Err(_) => return http_error(400, None), // Error 400 (no value for host)
+        },
+        None => return http_error(400, None), // Error 400 (no host header)
     };
 
     let (host, port) = match host_str.split_once(':') {
@@ -60,7 +62,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: Request, body: &[u8]) -> R
         None => return http_error(404, None), // Error 404
     };
 
-    if server.client_max_body_size < body.len() {
+    if server.client_max_body_size < req.body.len() {
         return http_error(413, Some(server)) // Error 413
     }
 
@@ -68,7 +70,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: Request, body: &[u8]) -> R
         Some(r) => r,
         None => return http_error(404, Some(server)), // Error 404
     };
-    if !path.methods.iter().any(|m| m == req_method) {
+    if !path.methods.iter().any(|m| *m == req_method) {
         return http_error(405, Some(server)) // Error 405
     }
     // Redirect
@@ -76,7 +78,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: Request, body: &[u8]) -> R
         return redirect_301(redirect)
     }
     // CGI
-    if path.cgi_extension != None && path.cgi_path != None {
+    if path.cgi_extension.is_some() && path.cgi_path.is_some() {
         return ResponseCore {
             status_code: 200,
             status_text: "OK",
@@ -140,7 +142,7 @@ pub fn redirect_301<'a>(redirect: &str) -> ResponseCore<'a> {
     return ResponseCore {
         status_code: 301,
         status_text: "Moved Permanently",
-        action: ResponseAction::Redirect { location: "Location: ".to_string() + redirect },
+        action: ResponseAction::Redirect { location: redirect.to_string() },
     }
 }
 

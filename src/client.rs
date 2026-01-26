@@ -16,12 +16,35 @@ use crate::setup::ListenerCtx;
 use crate::{config, utils};
 use crate::router::{self, ResponseCore, ResponseAction};
 
+pub enum BodyMode {
+    None,
+    ContentLength(usize),
+    Chunked,
+}
+
+pub enum ChunkState {
+    Size,
+    Data(usize),
+    CrLf,
+    Done,
+}
+
+pub struct ParsedRequest {
+	pub method: Option<String>,
+    pub path: Option<String>,
+    pub version: Option<u8>,
+    pub headers: Option<Vec<(String, Vec<u8>)>>,
+    pub body: Vec<u8>,
+    pub body_mode: BodyMode,
+}
+
 pub struct Client {
 	pub fd: RawFd,
 	pub listener_fd: RawFd,
 	pub read_buf: Vec<u8>,
 	pub write_buf: Vec<u8>,
 	pub write_offset: usize,
+	pub request: Option<ParsedRequest>,
 }
 
 /// Set socket to non-blocking.
@@ -61,6 +84,7 @@ pub fn handle_listener_event(
 					read_buf: Vec::new(),
 					write_buf: Vec::new(),
 					write_offset: 0,
+					request: None,
 				});
 			}
 			Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
@@ -89,8 +113,6 @@ pub fn handle_client_read(
 		}
 	};
 	let mut buf = [0u8; BUFFER_SIZE];
-    let mut headers = [httparse::EMPTY_HEADER; 64];
-    let mut req = httparse::Request::new(&mut headers);
 
 	loop {
 		// Fill buffer and return the read bytes.
@@ -100,80 +122,57 @@ pub fn handle_client_read(
 			// Fill client read buffer until the end of the header.
 			client.read_buf.extend_from_slice(&buf[..n as usize]);
 
-			// Detect end of the request header.
-			if client.read_buf.windows(4).any(|w| w == b"\r\n\r\n") {
-				let mut chunk = false;
-				let read_buf_clone = client.read_buf.clone();
-                let res = req.parse(&read_buf_clone).unwrap();
-				utils::debug_print_request(&req, &res);
+			let mut request_complete = false;
+			let mut headers = [httparse::EMPTY_HEADER; 64];
+			let mut req = httparse::Request::new(&mut headers);
 
-                if req.headers.iter().any(|h| h.name == "Transfer-Encoding" && str::from_utf8(h.value).unwrap() == "chunked") {
-					chunk = true;
+			// Check the state of the request
+			if client.request.is_none() {
+				if let Ok(Status::Complete(h_len)) = req.parse(&client.read_buf) {
+					let body_mode = determine_body_mode(&req);
+
+					let headers_vec = req.headers.iter()
+					.map(|h| (h.name.to_string(), h.value.to_vec()))
+					.collect::<Vec<_>>();
+
+					let body = client.read_buf[h_len..].to_vec();
+
+					let parsed = ParsedRequest {
+						method: Some(req.method.unwrap_or("").to_string()),
+						path: Some(req.path.unwrap_or("").to_string()),
+						version: Some(req.version.unwrap_or(1)),
+						headers: Some(headers_vec),
+						body,
+						body_mode,
+					};
+
+					let total_consumed = h_len + parsed.body.len();
+					client.read_buf.drain(..total_consumed);
+					client.request = Some(parsed);
 				}
+			}
+			if let Some(req) = &mut client.request {
+				match req.body_mode {
+					BodyMode::None => {
+						request_complete = true;
+					}
 
-				let mut header_offset = 0;
-
-				match res {
-					Status::Complete(i) => header_offset = i,
-					Status::Partial => {},
-				}
-
-				let body = &read_buf_clone[header_offset..n as usize];
-
-				let mut body_buf = &client.read_buf[header_offset..n as usize];
-				let mut body_treated: Vec<u8> = Vec::new();
-
-				if chunk {
-					//treatment for chunked requests (maybe body isn't read properly, see later)
-					// Les données arrivent en flux, il faut donc garder la connection ouverte et lire le(s) chunk(s) reçu et les concatener jusqu'a recevoir le chunk de fin (taille 0)
-					// IMPORTANT :
-					// chaque chunk ne créé pas de nouvelle requête
-					println!("CHUNKED");
-					let mut buf_index: usize = 0;
-					// let mut chunk_info = httparse::parse_chunk_size(body_buf).unwrap();
-					// while chunk_info.unwrap().1 != 0 {
-					// 	buf_index = chunk_info.unwrap().0;
-					// 	body_treated.append(body_buf[buf_index..(buf_index + chunk_info.unwrap().1 as usize)].to_vec().as_mut());
-					// 	buf_index += chunk_info.unwrap().1 as usize;
-
-					// 	chunk_info = httparse::parse_chunk_size(&body_buf[buf_index..]).unwrap()
-					// }
-
-					loop {
-						body_buf = &client.read_buf[header_offset..];
-						let chunk = httparse::parse_chunk_size(&body_buf[buf_index..]);
-						match chunk {
-							Ok(chunk_info) => {
-								match chunk_info {
-									Status::Complete((last_index, chunk_size)) => {
-										if chunk_size == 0 {
-											println!("END CHUNK RECEIVED");
-											break
-										} else {
-											buf_index += last_index;
-											println!("Chunk Info: {}, {}\nChunk: {}",last_index, chunk_size, String::from_utf8_lossy(&body_buf[(buf_index)..(buf_index+chunk_size as usize)]));
-											body_treated.append(body_buf[(buf_index)..(buf_index+chunk_size as usize)].to_vec().as_mut());
-											buf_index += chunk_size as usize + 2;
-										}
-									},
-									Status::Partial => continue,
-								}
-							},
-							Err(_e) => continue,
+					BodyMode::ContentLength(expected) => {
+						if req.body.len() >= expected {
+							req.body.truncate(expected);
+							request_complete = true;
 						}
 					}
 
-				} else {
-					//treatment for not chunked requests
-					println!("NOT CHUNKED");
-					body_treated = body_buf.to_vec();
+					BodyMode::Chunked => {
+						// PAS ICI (machine d’état séparée)
+					}
 				}
-				//test to see body, remove later
-				println!("Body: {}", String::from_utf8_lossy(body_treated.as_slice()));
-
-				client.read_buf.clear(); // Clear read buffer.
-				let resp = router::router(listener_ctx, req, body); // Give back where and what to do
+			}
+			if request_complete && let Some(parsed) = client.request.take() {
+				let resp = router::router(listener_ctx, parsed); // Give back where and what to do
 				prepare_response(epoll_fd, fd, client, resp);
+				client.request = None;
 				break;
 			}
 		} else if n == 0 {
@@ -256,7 +255,7 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 			}
 		},
 		ResponseAction::Redirect { location } => {
-			header_location = location
+			header_location = format!("Location: {}\r\n", location);
 		},
 		ResponseAction::AutoIndex { dir } => {
 
@@ -270,9 +269,8 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
         "HTTP/1.1 {} {}\r\n\
 Content-Length: {}\r\n\
 Content-Type: text/html; charset=UTF-8\r\n\
-Connection: close\r\n
-{}
-\r\n",
+Connection: close\r\n\
+{}\r\n",
         resp.status_code,
         resp.status_text,
         body_bytes.len(),
@@ -306,4 +304,25 @@ pub fn close_client(
 		libc::shutdown(fd, libc::SHUT_WR);
 		libc::close(fd);
 	}
+}
+
+// Determine the body_mode of the http request
+fn determine_body_mode(req: &httparse::Request) -> BodyMode {
+    for h in req.headers.iter() {
+        if h.name.eq_ignore_ascii_case("Transfer-Encoding")
+            && h.value.eq_ignore_ascii_case(b"chunked")
+        {
+            return BodyMode::Chunked;
+        }
+    }
+
+    for h in req.headers.iter() {
+        if h.name.eq_ignore_ascii_case("Content-Length") {
+            if let Ok(len) = std::str::from_utf8(h.value).unwrap().parse::<usize>() {
+                return BodyMode::ContentLength(len);
+            }
+        }
+    }
+
+    BodyMode::None
 }
