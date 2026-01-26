@@ -5,6 +5,7 @@ use std::net::{TcpListener};
 use std::os::fd::IntoRawFd;
 use std::os::unix::io::RawFd;
 use std::fs;
+use std::process::Command;
 use httparse::{Header, Status};
 use libc::{
 	EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
@@ -260,8 +261,17 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 		ResponseAction::AutoIndex { dir } => {
 
 		},
-		ResponseAction::Cgi { script } => {
-
+		ResponseAction::Cgi { 
+			interpreter,
+			path,
+			method,
+			body,
+		} => {
+			let cmd = Command::new("exec")
+				.args([interpreter, path, method, body])
+				.output()
+				.expect("ERREUR EXECUTION CGI");
+			body_bytes = cmd.stdout
 		},
 	}
 
