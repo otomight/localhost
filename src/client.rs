@@ -116,18 +116,56 @@ pub fn handle_client_read(
 					Status::Partial => {},
 				}
 
-				if header_offset != 0 {
-					let body = &client.read_buf[header_offset..n as usize];
-					if chunk {
-						//treatment for chunked requests (maybe body isn't read properly, see later)
-						println!("CHUNKED");
-					} else {
-						//treatment for not chunked requests
-						println!("NOT CHUNKED");
+				let mut body_buf = &client.read_buf[header_offset..n as usize];
+				let mut body_treated: Vec<u8> = Vec::new();
+
+				if chunk {
+					//treatment for chunked requests (maybe body isn't read properly, see later)
+					// Les données arrivent en flux, il faut donc garder la connection ouverte et lire le(s) chunk(s) reçu et les concatener jusqu'a recevoir le chunk de fin (taille 0)
+					// IMPORTANT : 
+					// chaque chunk ne créé pas de nouvelle requête
+					println!("CHUNKED");
+					let mut buf_index: usize = 0;
+					// let mut chunk_info = httparse::parse_chunk_size(body_buf).unwrap();
+					// while chunk_info.unwrap().1 != 0 {
+					// 	buf_index = chunk_info.unwrap().0;
+					// 	body_treated.append(body_buf[buf_index..(buf_index + chunk_info.unwrap().1 as usize)].to_vec().as_mut());
+					// 	buf_index += chunk_info.unwrap().1 as usize;
+
+					// 	chunk_info = httparse::parse_chunk_size(&body_buf[buf_index..]).unwrap()
+					// }
+
+					loop {
+						body_buf = &client.read_buf[header_offset..];
+						let chunk = httparse::parse_chunk_size(&body_buf[buf_index..]);
+						match chunk {
+							Ok(chunk_info) => {
+								match chunk_info {
+									Status::Complete((last_index, chunk_size)) => {
+										if chunk_size == 0 {
+											println!("END CHUNK RECEIVED");
+											break
+										} else {
+											buf_index += last_index;
+											println!("Chunk Info: {}, {}\nChunk: {}",last_index, chunk_size, String::from_utf8_lossy(&body_buf[(buf_index)..(buf_index+chunk_size as usize)]));
+											body_treated.append(body_buf[(buf_index)..(buf_index+chunk_size as usize)].to_vec().as_mut());
+											buf_index += chunk_size as usize + 2;
+										}
+									},
+									Status::Partial => continue,
+								}
+							},
+							Err(_e) => continue,
+						}
 					}
-					//test to see body, remove later
-					println!("Body: {}", String::from_utf8_lossy(body))
+
+				} else {
+					//treatment for not chunked requests
+					println!("NOT CHUNKED");
+					body_treated = body_buf.to_vec();
 				}
+				//test to see body, remove later
+				println!("Body: {}", String::from_utf8_lossy(body_treated.as_slice()));
 
 				client.read_buf.clear(); // Clear read buffer.
 				prepare_response(epoll_fd, fd, client, &req, res);
@@ -166,6 +204,8 @@ pub fn handle_client_write(
 				client.write_buf.len() - client.write_offset,
 			)
 		};
+
+		println!("response written");
 
 		if n > 0 {
 			client.write_offset += n as usize;
@@ -214,7 +254,7 @@ Connection: close\r\n\r\n",
 	}
 }
 
-fn close_client(
+pub fn close_client(
 	epoll_fd: RawFd,
 	fd: RawFd,
 	clients: &mut HashMap<RawFd, Client>,
