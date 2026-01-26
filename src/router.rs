@@ -7,7 +7,10 @@ pub enum ResponseAction<'a> {
     Redirect { location: String },
     AutoIndex { dir: String },
     Error {server: Option<&'a ServerConfig>},
-    Cgi { script: String}
+    Cgi { interpreter:String,
+        path: String,
+        method: String,
+        body: Vec<u8> }
 }
 
 pub struct ResponseCore<'a> {
@@ -78,14 +81,23 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         return redirect_301(redirect)
     }
     // CGI
+    let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script."
+    let mut script_path = PathBuf::from(path.root.as_ref().unwrap());
+    script_path.push(relative);  // "cgi-bin/script.py"
+
     if path.cgi_extension.is_some() && path.cgi_path.is_some() {
         return ResponseCore {
             status_code: 200,
             status_text: "OK",
-            action: ResponseAction::Cgi { script: String::new() }
+            action: ResponseAction::Cgi {
+                interpreter: path.cgi_path.clone().unwrap(),
+                path: script_path.to_string_lossy().to_string(),
+                method: req_method,
+                body: req.body,
+            }
         };
     }
-
+    // Files and Dirs
     if req_method == "GET" {
         let root = match &path.root {
             Some(r) => r,

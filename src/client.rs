@@ -261,7 +261,7 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 		ResponseAction::AutoIndex { dir } => {
 
 		},
-		ResponseAction::Cgi { 
+		ResponseAction::Cgi {
 			interpreter,
 			path,
 			method,
