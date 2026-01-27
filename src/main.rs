@@ -16,6 +16,7 @@ use crate::client::close_client;
 use crate::config::Config;
 use crate::global::{MAX_EVENTS, RATELIMITER_REQUEST_NUMBER, RATELIMITER_WINDOW};
 use crate::setup::ListenerCtx;
+use crate::utils::get_error_body;
 
 fn event_loop(
 	epoll_fd: RawFd,
@@ -63,8 +64,7 @@ fn event_loop(
 					None => continue,
 				};
 
-				let err_header = b"HTTP/1.1 429 Too much requests\r\nContent-Length: 0\r\n\r\n";
-				client.write_buf = err_header.to_vec();
+				client.write_buf = get_error_body(429, "Too Many Requests", None);
 
 				let mut event = epoll_event {
 					events: EPOLLOUT as u32,

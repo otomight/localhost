@@ -14,6 +14,7 @@ use libc::{
 
 use crate::global::BUFFER_SIZE;
 use crate::setup::ListenerCtx;
+use crate::utils::get_error_body;
 use crate::{config, utils};
 use crate::router::{self, ResponseCore, ResponseAction};
 
@@ -49,6 +50,12 @@ pub struct Client {
 	pub write_buf: Vec<u8>,
 	pub write_offset: usize,
 	pub request: Option<ParsedRequest>,
+}
+
+#[derive(serde::Deserialize)]
+struct CgiResponse {
+    headers: HashMap<String, String>,
+    body: String,
 }
 
 /// Set socket to non-blocking.
@@ -233,7 +240,7 @@ pub fn handle_client_write(
 /// The response will be treated by epoll at the next event check in the main loop.
 fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: ResponseCore) {
 	let mut body_bytes: Vec<u8> = Vec::new();
-	let mut header_location: String = String::new();
+	let mut extra_headers: String = String::new();
 	match resp.action {
 		ResponseAction::ServeFile { path } => {
 			body_bytes = match fs::read(path) {
@@ -242,24 +249,10 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 			}
 		},
 		ResponseAction::Error {server} => {
-			let code = resp.status_code;
-			// If config && path, serve custom errors (errors/4xx.html), else minimal fallback
-			if let Some(cfg) = server {
-				if let Some(path) = cfg.error_pages.get(&code) {
-					if let Ok(bytes) = fs::read(path) {
-						body_bytes = bytes;
-					}
-				}
-			} else {
-				body_bytes = format!(
-					"<html><head><title>{0} {1}</title></head>\
-					<body><h1>{0} {1}</h1></body></html>",
-					code, resp.status_text
-				).into_bytes();
-			}
+			body_bytes = get_error_body(resp.status_code, resp.status_text, server)
 		},
 		ResponseAction::Redirect { location } => {
-			header_location = format!("Location: {}\r\n", location);
+			extra_headers.push_str(&format!("Location: {}\r\n", location));
 		},
 		ResponseAction::AutoIndex { dir } => {
 
@@ -272,10 +265,25 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 		} => {
 			let cmd = Command::new(interpreter)
 				.args([path, method, String::from_utf8(body).unwrap()])
-				.output()
-				.expect("ERREUR EXECUTION CGI");
-			body_bytes = cmd.stdout
-		},
+				.output();
+			match cmd {
+				Ok(output) => {
+					match serde_json::from_slice::<CgiResponse>(&output.stdout) {
+						Ok(cgi_resp) => {
+							for (key, value) in cgi_resp.headers {
+								extra_headers.push_str(&format!("{}: {}\r\n", key, value))};
+								body_bytes = cgi_resp.body.into_bytes();
+						}
+						Err(_) => {
+							body_bytes = get_error_body(500, "CGI Error", None)
+						}
+					}
+				}
+				Err(_) => {
+					body_bytes = get_error_body(500, "CGI Error", None)
+				}
+			}
+		}
 	}
 
     let headers = format!(
@@ -287,7 +295,7 @@ Connection: close\r\n\
         resp.status_code,
         resp.status_text,
         body_bytes.len(),
-		header_location,
+		extra_headers,
     );
 
     client.write_buf = headers.into_bytes();
