@@ -38,7 +38,6 @@ fn event_loop(
 
 		// Check if there is any file descriptor ready to be treated.
 		for i in 0..nfds as usize {
-			println!("{}", nb_event);
 			let fd = events[i].u64 as RawFd;
 			let ev = events[i].events;
 			nb_event += 1;
