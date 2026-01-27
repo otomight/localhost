@@ -20,10 +20,6 @@ pub struct ResponseCore<'a> {
 }
 
 pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> ResponseCore<'a> {
-
-    /* let readable_body = String::from_utf8_lossy(&req.body);
-    print!("{}", readable_body); */
-
     let req_path = match req.path {
         Some(p) => p,
         None => return http_error(400, None), // Error 400
