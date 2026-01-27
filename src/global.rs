@@ -5,6 +5,7 @@ pub const MAX_EVENTS: usize = 255;
 pub const BUFFER_SIZE: usize = 8192;
 pub const RATELIMITER_WINDOW: u64 = 1000;
 pub const RATELIMITER_REQUEST_NUMBER: i32 = 255;
+pub const HTML_DEFAULT_V: u8 = 1;
 
 
 

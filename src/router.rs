@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{client::ParsedRequest, config::{Route, ServerConfig}, setup::ListenerCtx};
+use crate::{parse_req::ParsedRequest, config::{Route, ServerConfig}, setup::ListenerCtx};
 
 pub enum ResponseAction<'a> {
     ServeFile { path: String },
@@ -10,7 +10,9 @@ pub enum ResponseAction<'a> {
     Cgi { interpreter:String,
         path: String,
         method: String,
-        body: Vec<u8> }
+        body: Vec<u8>,
+        server: Option<&'a ServerConfig>,
+    }
 }
 
 pub struct ResponseCore<'a> {
@@ -94,6 +96,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
                 path: script_path.to_string_lossy().to_string(),
                 method: req_method,
                 body: req.body,
+                server: Some(server),
             }
         };
     }

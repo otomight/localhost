@@ -12,36 +12,12 @@ use libc::{
 	EPOLLIN, EPOLLOUT, F_SETFL, O_NONBLOCK, epoll_ctl, epoll_event, fcntl
 };
 
-use crate::global::BUFFER_SIZE;
+use crate::global::{BUFFER_SIZE, HTML_DEFAULT_V};
+use crate::parse_req::{BodyMode, ChunkState, ParsedRequest, determine_body_mode, process_chunked};
 use crate::setup::ListenerCtx;
 use crate::utils::get_error_body;
 use crate::{config, utils};
 use crate::router::{self, ResponseCore, ResponseAction};
-
-#[derive(Debug)]
-pub enum BodyMode {
-    None,
-    ContentLength(usize),
-    Chunked,
-}
-
-#[derive(Debug)]
-pub enum ChunkState {
-    Size,
-    Data(usize),
-    CrLf,
-    Done,
-}
-
-#[derive(Debug)]
-pub struct ParsedRequest {
-	pub method: Option<String>,
-    pub path: Option<String>,
-    pub version: Option<u8>,
-    pub headers: Option<Vec<(String, Vec<u8>)>>,
-    pub body: Vec<u8>,
-    pub body_mode: BodyMode,
-}
 
 pub struct Client {
 	pub fd: RawFd,
@@ -50,11 +26,17 @@ pub struct Client {
 	pub write_buf: Vec<u8>,
 	pub write_offset: usize,
 	pub request: Option<ParsedRequest>,
+
+	pub chunk_state: Option<ChunkState>,
+    pub chunked_body: Vec<u8>,
 }
 
 #[derive(serde::Deserialize)]
 struct CgiResponse {
+	#[serde(default)]
     headers: HashMap<String, String>,
+	#[serde(default)]
+	error: Option<(u16, String)>,
     body: String,
 }
 
@@ -96,6 +78,8 @@ pub fn handle_listener_event(
 					write_buf: Vec::new(),
 					write_offset: 0,
 					request: None,
+					chunk_state: None,
+					chunked_body: Vec::new(),
 				});
 			}
 			Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
@@ -134,50 +118,84 @@ pub fn handle_client_read(
 			client.read_buf.extend_from_slice(&buf[..n as usize]);
 
 			let mut request_complete = false;
-			let mut headers = [httparse::EMPTY_HEADER; 64];
-			let mut req = httparse::Request::new(&mut headers);
 
 			// Check the state of the request
 			if client.request.is_none() {
-				if let Ok(Status::Complete(h_len)) = req.parse(&client.read_buf) {
-					let body_mode = determine_body_mode(&req);
+				// Parser headers
+				let mut headers = [httparse::EMPTY_HEADER; 64];
+				let mut req_parse = httparse::Request::new(&mut headers);
 
-					let headers_vec = req.headers.iter()
+				if let Ok(Status::Complete(h_len)) = req_parse.parse(&client.read_buf) {
+					let body_mode = determine_body_mode(&req_parse);
+
+					// Extract data before drain
+					let method = req_parse.method.unwrap_or("").to_string();
+					let path = req_parse.path.unwrap_or("").to_string();
+					let version = req_parse.version.unwrap_or(1);
+					let headers_vec: Vec<(String, Vec<u8>)> = req_parse.headers.iter()
 					.map(|h| (h.name.to_string(), h.value.to_vec()))
-					.collect::<Vec<_>>();
+					.collect();
 
-					let body = client.read_buf[h_len..].to_vec();
+					// Comsuming only headers
+					drop(req_parse);
+					client.read_buf.drain(..h_len);
 
-					let parsed = ParsedRequest {
-						method: Some(req.method.unwrap_or("").to_string()),
-						path: Some(req.path.unwrap_or("").to_string()),
-						version: Some(req.version.unwrap_or(1)),
-						headers: Some(headers_vec),
-						body,
-						body_mode,
-					};
-
-					let total_consumed = h_len + parsed.body.len();
-					client.read_buf.drain(..total_consumed);
-					client.request = Some(parsed);
+					if body_mode != BodyMode::Chunked {
+						let parsed = ParsedRequest {
+							method: Some(method),
+							path: Some(path),
+							version: Some(version),
+							headers: Some(headers_vec),
+							body: Vec::new(),
+							body_mode,
+						};
+						client.request = Some(parsed);
+					} else {
+						// Initializing unchunking process
+						let parsed = ParsedRequest {
+							method: Some(method),
+							path: Some(path),
+							version: Some(version),
+							headers: Some(headers_vec),
+							body: Vec::new(),
+							body_mode,
+						};
+						client.request = Some(parsed);
+						client.chunk_state = Some(ChunkState::Size);
+						client.chunked_body.clear();
+					}
 				}
 			}
 			if let Some(req) = &mut client.request {
 				match req.body_mode {
-					BodyMode::None => {
-						request_complete = true;
-					}
-
-					BodyMode::ContentLength(expected) => {
-						if req.body.len() >= expected {
-							req.body.truncate(expected);
-							request_complete = true;
+					BodyMode::Chunked => {
+						// Getting chunked_body full
+						if let Some(ref mut chunk_state) = client.chunk_state {
+							match process_chunked(chunk_state, &mut client.read_buf, &mut client.chunked_body) {
+								Ok(done) => {
+									if done {
+										let headers_vec = req.headers.take().unwrap_or_default();
+										let parsed = ParsedRequest {
+											method: req.method.clone(),
+											path: req.path.clone(),
+											version: req.version,
+											headers: Some(headers_vec),
+											body: std::mem::take(&mut client.chunked_body),
+											body_mode: BodyMode::Chunked,
+										};
+										client.request = Some(parsed);
+										client.chunk_state = None;
+										request_complete = true;
+									}
+								}
+								Err(_) => {
+									close_client(epoll_fd, fd, clients);
+            						return;
+								}
+							}
 						}
 					}
-
-					BodyMode::Chunked => {
-						// PAS ICI (machine d’état séparée)
-					}
+					_ => {}
 				}
 			}
 			if request_complete && let Some(parsed) = client.request.take() {
@@ -262,6 +280,7 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 			path,
 			method,
 			body,
+			server
 		} => {
 			let cmd = Command::new(interpreter)
 				.args([path, method, String::from_utf8(body).unwrap()])
@@ -270,17 +289,22 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 				Ok(output) => {
 					match serde_json::from_slice::<CgiResponse>(&output.stdout) {
 						Ok(cgi_resp) => {
-							for (key, value) in cgi_resp.headers {
-								extra_headers.push_str(&format!("{}: {}\r\n", key, value))};
+							if let Some((code, msg)) = cgi_resp.error {
+								body_bytes = get_error_body(code, &msg, server);
+							} else {
+								for (key, value) in cgi_resp.headers {
+									extra_headers.push_str(&format!("{}: {}\r\n", key, value))
+								};
 								body_bytes = cgi_resp.body.into_bytes();
+							}
 						}
 						Err(_) => {
-							body_bytes = get_error_body(500, "CGI Error", None)
+							body_bytes = get_error_body(500, "CGI Error", server)
 						}
 					}
 				}
 				Err(_) => {
-					body_bytes = get_error_body(500, "CGI Error", None)
+					body_bytes = get_error_body(500, "CGI Error", server)
 				}
 			}
 		}
@@ -325,25 +349,4 @@ pub fn close_client(
 		libc::shutdown(fd, libc::SHUT_WR);
 		libc::close(fd);
 	}
-}
-
-// Determine the body_mode of the http request
-fn determine_body_mode(req: &httparse::Request) -> BodyMode {
-    for h in req.headers.iter() {
-        if h.name.eq_ignore_ascii_case("Transfer-Encoding")
-            && h.value.eq_ignore_ascii_case(b"chunked")
-        {
-            return BodyMode::Chunked;
-        }
-    }
-
-    for h in req.headers.iter() {
-        if h.name.eq_ignore_ascii_case("Content-Length") {
-            if let Ok(len) = std::str::from_utf8(h.value).unwrap().parse::<usize>() {
-                return BodyMode::ContentLength(len);
-            }
-        }
-    }
-
-    BodyMode::None
 }

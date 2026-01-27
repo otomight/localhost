@@ -3,6 +3,7 @@ mod utils;
 mod global;
 mod setup;
 mod client;
+mod parse_req;
 mod router;
 
 use std::collections::HashMap;
