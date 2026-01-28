@@ -14,9 +14,12 @@ match method:
         print("ok")
         with open("server/templates/login.html", "r") as file :
             content = file.read()
-            print({"body": content})
+            result = {
+                "body": content
+            }
+            print(json.dumps(result))
             file.close()
-    
+
     case "POST":
         parsed_body = {}
         for val in body.split("\r\n"):
@@ -27,7 +30,7 @@ match method:
         print(parsed_body)
         # requete bdd
         res = cur.execute("SELECT * FROM users WHERE email = ? AND password = ?", (
-            parsed_body["email"], 
+            parsed_body["email"],
             hashlib.sha256(str(parsed_body["password"]).encode('utf-8')).hexdigest())
             ).fetchall()
 
@@ -41,6 +44,6 @@ match method:
                 "body": parsed_body,
             }
             print(json.dumps(result))
-        
+
         else:
-            print(json.dumps({"error":["500", "Something went wrong"]})) 
+            print(json.dumps({"error":["500", "Something went wrong"]}))

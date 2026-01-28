@@ -13,9 +13,12 @@ match method:
     case "GET":
         with open("server/templates/register.html", "r") as file :
             content = file.read()
-            print({"body": content})
+            result = {
+                "body": content
+            }
+            print(json.dumps(result))
             file.close()
-    
+
     case "POST":
         # Parse body
         parsed_body = {}
@@ -27,8 +30,8 @@ match method:
         if parsed_body["password"] == parsed_body["confirm_password"]:
             # requete bdd
             cur.execute("INSERT INTO users(name, email, password) VALUES (?, ?, ?)", (
-                parsed_body["username"], 
-                parsed_body["email"], 
+                parsed_body["username"],
+                parsed_body["email"],
                 hashlib.sha256(str(parsed_body["password"]).encode('utf-8')).hexdigest()))
             con.commit()
 
@@ -41,6 +44,6 @@ match method:
                 "body": parsed_body,
             }
             print(json.dumps(result))
-        
+
         else:
             print(json.dumps({"error": ["500", "Something went wrong"]}))

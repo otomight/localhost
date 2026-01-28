@@ -37,6 +37,8 @@ struct CgiResponse {
     headers: HashMap<String, String>,
 	#[serde(default)]
 	error: Option<(u16, String)>,
+	#[serde(default)]
+    status: Option<u16>,
     body: String,
 }
 
@@ -150,6 +152,8 @@ pub fn handle_client_read(
 							body_mode,
 						};
 						client.request = Some(parsed);
+						request_complete = true;
+						eprintln!("[DEBUG] Request complete (non-chunked), will prepare response");
 					} else {
 						// Initializing unchunking process
 						let parsed = ParsedRequest {
@@ -259,6 +263,8 @@ pub fn handle_client_write(
 fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: ResponseCore) {
 	let mut body_bytes: Vec<u8> = Vec::new();
 	let mut extra_headers: String = String::new();
+	let mut final_status_code = resp.status_code;
+    let mut final_status_text = resp.status_text;
 	match resp.action {
 		ResponseAction::ServeFile { path } => {
 			body_bytes = match fs::read(path) {
@@ -282,16 +288,30 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 			body,
 			server
 		} => {
+			let cgi_error_code = 500;
+			let cgi_error_msg = "CGI Error";
 			let cmd = Command::new(interpreter)
 				.args([path, method, String::from_utf8(body).unwrap()])
 				.output();
 			match cmd {
 				Ok(output) => {
+					println!("[COMMAND]");
 					match serde_json::from_slice::<CgiResponse>(&output.stdout) {
 						Ok(cgi_resp) => {
 							if let Some((code, msg)) = cgi_resp.error {
 								body_bytes = get_error_body(code, &msg, server);
+								final_status_code = code;
+                                final_status_text = "Error";
 							} else {
+								if let Some(status) = cgi_resp.status {
+                                    final_status_code = status;
+                                    final_status_text = match status {
+                                        301 => "Moved Permanently",
+                                        302 => "Found",
+                                        303 => "See Other",
+                                        _ => "OK",
+                                    };
+                                }
 								for (key, value) in cgi_resp.headers {
 									extra_headers.push_str(&format!("{}: {}\r\n", key, value))
 								};
@@ -299,12 +319,16 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 							}
 						}
 						Err(_) => {
-							body_bytes = get_error_body(500, "CGI Error", server)
+							body_bytes = get_error_body(cgi_error_code, cgi_error_msg, server);
+							final_status_code = cgi_error_code;
+							final_status_text = cgi_error_msg;
 						}
 					}
 				}
 				Err(_) => {
-					body_bytes = get_error_body(500, "CGI Error", server)
+					body_bytes = get_error_body(cgi_error_code, cgi_error_msg, server);
+							final_status_code = cgi_error_code;
+							final_status_text = cgi_error_msg;
 				}
 			}
 		}
@@ -316,8 +340,8 @@ Content-Length: {}\r\n\
 Content-Type: text/html; charset=UTF-8\r\n\
 Connection: close\r\n\
 {}\r\n",
-        resp.status_code,
-        resp.status_text,
+        final_status_code,
+        final_status_text,
         body_bytes.len(),
 		extra_headers,
     );
