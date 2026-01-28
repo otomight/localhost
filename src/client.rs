@@ -31,7 +31,7 @@ pub struct Client {
     pub chunked_body: Vec<u8>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 struct CgiResponse {
 	#[serde(default)]
     headers: HashMap<String, String>,
@@ -142,36 +142,54 @@ pub fn handle_client_read(
 					drop(req_parse);
 					client.read_buf.drain(..h_len);
 
-					if body_mode != BodyMode::Chunked {
-						let parsed = ParsedRequest {
-							method: Some(method),
-							path: Some(path),
-							version: Some(version),
-							headers: Some(headers_vec),
-							body: Vec::new(),
-							body_mode,
-						};
-						client.request = Some(parsed);
-						request_complete = true;
-						eprintln!("[DEBUG] Request complete (non-chunked), will prepare response");
-					} else {
-						// Initializing unchunking process
-						let parsed = ParsedRequest {
-							method: Some(method),
-							path: Some(path),
-							version: Some(version),
-							headers: Some(headers_vec),
-							body: Vec::new(),
-							body_mode,
-						};
-						client.request = Some(parsed);
-						client.chunk_state = Some(ChunkState::Size);
-						client.chunked_body.clear();
+					match body_mode {
+						BodyMode::None => {
+							let parsed = ParsedRequest {
+								method: Some(method),
+								path: Some(path),
+								version: Some(version),
+								headers: Some(headers_vec),
+								body: Vec::new(),
+								body_mode,
+							};
+							client.request = Some(parsed);
+							request_complete = true;
+						}
+						BodyMode::ContentLength(len) => {
+							let parsed = ParsedRequest {
+								method: Some(method),
+								path: Some(path),
+								version: Some(version),
+								headers: Some(headers_vec),
+								body: Vec::new(),
+								body_mode,
+							};
+							client.request = Some(parsed);
+						}
+						BodyMode::Chunked => {
+							let parsed = ParsedRequest {
+								method: Some(method),
+								path: Some(path),
+								version: Some(version),
+								headers: Some(headers_vec),
+								body: Vec::new(),
+								body_mode,
+							};
+							client.request = Some(parsed);
+							client.chunk_state = Some(ChunkState::Size);
+							client.chunked_body.clear();
+						}
 					}
 				}
 			}
 			if let Some(req) = &mut client.request {
 				match req.body_mode {
+					BodyMode::ContentLength(len) => {
+						if client.read_buf.len() >= len {
+							req.body = client.read_buf.drain(..len).collect();
+							request_complete = true;
+						}
+					}
 					BodyMode::Chunked => {
 						// Getting chunked_body full
 						if let Some(ref mut chunk_state) = client.chunk_state {
@@ -295,9 +313,10 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 				.output();
 			match cmd {
 				Ok(output) => {
-					println!("[COMMAND]");
+					println!("[COMMAND] stdout: {:?}", output);
 					match serde_json::from_slice::<CgiResponse>(&output.stdout) {
 						Ok(cgi_resp) => {
+							println!("Huh ? {:?}", cgi_resp);
 							if let Some((code, msg)) = cgi_resp.error {
 								body_bytes = get_error_body(code, &msg, server);
 								final_status_code = code;
