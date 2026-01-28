@@ -11,7 +11,6 @@ body = sys.argv[2]
 
 match method:
     case "GET":
-        print("ok")
         with open("server/templates/login.html", "r") as file :
             content = file.read()
             result = {
@@ -46,4 +45,4 @@ match method:
             print(json.dumps(result))
 
         else:
-            print(json.dumps({"error":[500, "Something went wrong"]})) 
+            print(json.dumps({"error":[500, "Something went wrong"]}))

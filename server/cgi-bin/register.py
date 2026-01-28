@@ -13,10 +13,10 @@ match method:
     case "GET":
         with open("server/templates/register.html", "r") as file :
             content = file.read()
-            print({
-                "headers": {},
+            result = {
                 "body": content
-                })
+            }
+            print(json.dumps(result))
             file.close()
 
     case "POST":
@@ -38,10 +38,10 @@ match method:
             # print resultat
             result = {
                 "headers": {
-                    "Status": 303,
-                    "Location": "/test.py"
+                    "Location": "test.py"
                 },
-                "body": parsed_body,
+                "status": 303,
+                "body": "OK",
             }
             print(json.dumps(result))
 

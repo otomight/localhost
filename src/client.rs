@@ -313,10 +313,9 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 				.output();
 			match cmd {
 				Ok(output) => {
-					println!("[COMMAND] stdout: {:?}", output);
+					//println!("STDOUT : {:?}", String::from_utf8(output.stdout.clone()).unwrap());
 					match serde_json::from_slice::<CgiResponse>(&output.stdout) {
 						Ok(cgi_resp) => {
-							println!("Huh ? {:?}", cgi_resp);
 							if let Some((code, msg)) = cgi_resp.error {
 								body_bytes = get_error_body(code, &msg, server);
 								final_status_code = code;
