@@ -46,4 +46,4 @@ match method:
             print(json.dumps(result))
 
         else:
-            print(json.dumps({"error":["500", "Something went wrong"]}))
+            print(json.dumps({"error":[500, "Something went wrong"]})) 

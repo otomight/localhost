@@ -13,10 +13,10 @@ match method:
     case "GET":
         with open("server/templates/register.html", "r") as file :
             content = file.read()
-            result = {
+            print({
+                "headers": {},
                 "body": content
-            }
-            print(json.dumps(result))
+                })
             file.close()
 
     case "POST":
@@ -46,4 +46,4 @@ match method:
             print(json.dumps(result))
 
         else:
-            print(json.dumps({"error": ["500", "Something went wrong"]}))
+            print(json.dumps({"error": [500, "Something went wrong"]}))
