@@ -11,9 +11,10 @@ body = sys.argv[2]
 
 match method:
     case "GET":
+        print("ok")
         with open("server/templates/login.html", "r") as file :
             content = file.read()
-            print(content)
+            print({"body": content})
             file.close()
     
     case "POST":
@@ -34,6 +35,7 @@ match method:
             # print resultat
             result = {
                 "headers": {
+                    "Status": 303,
                     "Location": "/test.py"
                 },
                 "body": parsed_body,
@@ -41,5 +43,4 @@ match method:
             print(json.dumps(result))
         
         else:
-            print(json.dumps(["500", "Something went wrong"]))
-        
+            print(json.dumps({"error":["500", "Something went wrong"]})) 

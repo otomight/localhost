@@ -1,4 +1,5 @@
 import sys
+import json
 
 path = sys.argv[0]
 method = sys.argv[1]
@@ -6,10 +7,10 @@ body = sys.argv[2]
 
 match method:
     case "GET":
-        print("<p>GET</p>")
+        print(json.dumps({"body": "<p>GET</p>"}))
     
     case "POST":
-        print("<p>POST</p>")
+        print(json.dumps({"body": "<p>POST</p>"}))
     
     case "DELETE":
-        print("<p>DELETE</p>")
+        print(json.dumps({"body": "<p>DELETE</p>"}))
