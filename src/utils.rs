@@ -1,7 +1,7 @@
 //! Utilitaries functions.
 
 use std::fs;
-use crate::config::ServerConfig;
+use crate::{config::ServerConfig, parse_req::ParsedRequest};
 
 pub fn debug_print_request(request: &httparse::Request, result: &httparse::Status<usize>) {
     println!("\n--- HTTP REQUEST BEGIN ---");
@@ -31,4 +31,21 @@ pub fn get_error_body(code: u16, status_text: &str, server: Option<&ServerConfig
         <body><h1>{0} {1}</h1></body></html>",
         code, status_text
     ).into_bytes()
+}
+
+pub fn get_cookie(req: &ParsedRequest, name: &str) -> Option<String> {
+    let headers = req.headers.as_ref()?;
+
+    for (k, v) in headers {
+        if k.eq_ignore_ascii_case("cookie") {
+            let s = std::str::from_utf8(v).ok()?;
+            for part in s.split(';') {
+                let mut it = part.trim().splitn(2, '=');
+                if it.next()? == name {
+                    return Some(it.next()?.to_string());
+                }
+            }
+        }
+    }
+    None
 }

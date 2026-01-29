@@ -133,7 +133,7 @@ pub fn handle_client_read(
 					// Extract data before drain
 					let method = req_parse.method.unwrap_or("").to_string();
 					let path = req_parse.path.unwrap_or("").to_string();
-					let version = req_parse.version.unwrap_or(1);
+					let version = req_parse.version.unwrap_or(HTML_DEFAULT_V);
 					let headers_vec: Vec<(String, Vec<u8>)> = req_parse.headers.iter()
 					.map(|h| (h.name.to_string(), h.value.to_vec()))
 					.collect();
@@ -304,12 +304,17 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 			path,
 			method,
 			body,
-			server
+			server,
+			session,
 		} => {
+			let session = match session {
+				Some(s) => s,
+				None => String::new(),
+			};
 			let cgi_error_code = 500;
 			let cgi_error_msg = "CGI Error";
 			let cmd = Command::new(interpreter)
-				.args([path, method, String::from_utf8(body).unwrap()])
+				.args([path, method, String::from_utf8(body).unwrap(), session])
 				.output();
 			match cmd {
 				Ok(output) => {

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{parse_req::ParsedRequest, config::{Route, ServerConfig}, setup::ListenerCtx};
+use crate::{config::{Route, ServerConfig}, parse_req::ParsedRequest, setup::ListenerCtx, utils::get_cookie};
 
 pub enum ResponseAction<'a> {
     ServeFile { path: String },
@@ -12,6 +12,7 @@ pub enum ResponseAction<'a> {
         method: String,
         body: Vec<u8>,
         server: Option<&'a ServerConfig>,
+        session: Option<String>
     }
 }
 
@@ -23,11 +24,11 @@ pub struct ResponseCore<'a> {
 
 pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> ResponseCore<'a> {
     let req_path = match req.path {
-        Some(p) => p,
+        Some(ref p) => p,
         None => return http_error(400, None), // Error 400
     };
     let req_method = match req.method {
-        Some(m) => m,
+        Some(ref m) => m,
         None => return http_error(400, None), // Error 400
     };
     let headers = match &req.headers {
@@ -60,6 +61,8 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         }
     };
 
+    let session_id = get_cookie(&req, "session");
+
     let server  = match listener_ctx.servers
     .iter()
     .find(|sc| {sc.server_name.as_deref() == Some(host) && sc.ports.contains(&port)}) {
@@ -75,7 +78,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         Some(r) => r,
         None => return http_error(404, Some(server)), // Error 404
     };
-    if !path.methods.iter().any(|m| *m == req_method) {
+    if !path.methods.iter().any(|m| m == req_method) {
         return http_error(405, Some(server)) // Error 405
     }
     // Redirect
@@ -94,9 +97,10 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
             action: ResponseAction::Cgi {
                 interpreter: path.cgi_path.clone().unwrap(),
                 path: script_path.to_string_lossy().to_string(),
-                method: req_method,
+                method: req_method.to_string(),
                 body: req.body,
                 server: Some(server),
+                session: session_id,
             }
         };
     }
