@@ -17,7 +17,13 @@ def checkSession(cookie: str):
 match method:
     case "GET":
         if checkSession(cookie):
-            print(json.dumps({"body": "<p>"+cookie+"</p>"}))
+             with open("server/templates/index.html", "r") as file :
+                content = file.read()
+                result = {
+                    "body": content
+                }
+                print(json.dumps(result))
+                file.close()
         else:
             response = {
                 "headers": {
@@ -32,5 +38,15 @@ match method:
         print(json.dumps({"body": "<p>POST</p>"}))
     
     case "DELETE":
-        print(json.dumps({"body": "<p>DELETE</p>"}))
+        cur.execute("DELETE FROM session WHERE uuid = ?", (cookie,))
+        con.commit()
+        response = {
+            "headers": {
+                "Set-Cookie": "session=deleted; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+                "Location": "register.py",
+            },
+            "status": 200,
+            "body": "OK",
+        }
+        print(json.dumps(response))
 
