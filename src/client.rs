@@ -342,6 +342,7 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 							}
 						}
 						Err(_) => {
+							eprintln!("Not Fnnuy");
 							body_bytes = get_error_body(cgi_error_code, cgi_error_msg, server);
 							final_status_code = cgi_error_code;
 							final_status_text = cgi_error_msg;
@@ -349,6 +350,7 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 					}
 				}
 				Err(_) => {
+					eprintln!("Oskour");
 					body_bytes = get_error_body(cgi_error_code, cgi_error_msg, server);
 							final_status_code = cgi_error_code;
 							final_status_text = cgi_error_msg;
