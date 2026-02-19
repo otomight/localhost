@@ -90,26 +90,6 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         return redirect_301(redirect)
     }
 
-    // CGI
-    let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script.py"
-    let mut script_path = PathBuf::from(path.root.as_ref().unwrap());
-    script_path.push(relative);  // "cgi-bin/script.py"
-
-    if path.cgi_extension.is_some() && path.cgi_path.is_some() {
-        return ResponseCore {
-            status_code: 200,
-            status_text: "OK",
-            action: ResponseAction::Cgi {
-                interpreter: path.cgi_path.clone().unwrap(),
-                path: script_path.to_string_lossy().to_string(),
-                method: req_method.to_string(),
-                body: req.body,
-                server: Some(server),
-                session: session_id,
-            }
-        };
-    }
-
     // Upload
     let ctype_val = headers.iter()
     .find(|(key, _)| key.eq_ignore_ascii_case("Content-Type"))
@@ -129,6 +109,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
             }
         }
     }
+
 
     // Files and Dirs
     if req_method == "GET" {
@@ -176,6 +157,26 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
             return http_error(403, Some(server))
 
         }
+    }
+
+    // CGI
+    let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script.py"
+    let mut script_path = PathBuf::from(path.root.as_ref().unwrap());
+    script_path.push(relative);  // "cgi-bin/script.py"
+
+    if path.cgi_extension.is_some() && path.cgi_path.is_some() {
+        return ResponseCore {
+            status_code: 200,
+            status_text: "OK",
+            action: ResponseAction::Cgi {
+                interpreter: path.cgi_path.clone().unwrap(),
+                path: script_path.to_string_lossy().to_string(),
+                method: req_method.to_string(),
+                body: req.body,
+                server: Some(server),
+                session: session_id,
+            }
+        };
     }
     return http_error(404, Some(server))
 }

@@ -1,9 +1,11 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::str::from_utf8;
 
 
 pub fn handle_multipart(body: &[u8], content_type: &str) -> std::io::Result<()> {
+    println!("In handle");
     let boundary = extract_boundary(content_type)
         .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "No boundary"))?;
 
@@ -32,8 +34,13 @@ pub fn handle_multipart(body: &[u8], content_type: &str) -> std::io::Result<()> 
             if let Some(next_rel) = find_subslice(&body[data_start..], boundary_bytes) {
                 let data_end = data_start + next_rel - 2;
 
-                if headers.windows(20).any(|w| w == b"filename=\"") {
+                let filename_marker = b"filename=\"";
+
+                if headers.windows(filename_marker.len())
+                        .any(|w| w == filename_marker)
+                {
                     if let Some(filename) = extract_filename(headers) {
+                        println!("Filename detected: {}", filename);
                         save_file(&filename, &body[data_start..data_end])?;
                     }
                 }
@@ -77,7 +84,7 @@ fn save_file(
     original_filename: &str,
     file_bytes: &[u8],
 ) -> std::io::Result<()> {
-
+    println!("In save function");
     let extension = Path::new(original_filename)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -89,6 +96,7 @@ fn save_file(
     let mut max_index = 0;
     for entry in fs::read_dir(medias_dir)? {
         let entry = entry?;
+        eprintln!("{:?}", entry);
         if let Some(file_name) = entry.file_name().to_str() {
             if let Some(stem) = Path::new(file_name).file_stem() {
                 if let Some(stem_str) = stem.to_str() {

@@ -6,6 +6,7 @@ use std::os::fd::IntoRawFd;
 use std::os::unix::io::RawFd;
 use std::fs;
 use std::process::Command;
+use std::str::from_utf8;
 use httparse::{Header, Status};
 use libc::{
 	EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
@@ -222,6 +223,9 @@ pub fn handle_client_read(
 				}
 			}
 			if request_complete && let Some(parsed) = client.request.take() {
+				println!("Body = {:?}", parsed.body);
+				println!("Content-Length = {:?}", parsed.body_mode);
+				println!("Body length = {:?}", parsed.body.len());
 				let resp = router::router(listener_ctx, parsed); // Give back where and what to do
 				prepare_response(epoll_fd, fd, client, resp);
 				client.request = None;
@@ -362,6 +366,7 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 			body,
 			content_type
 		} => {
+			println!("In Upload");
 			match handle_multipart(&body, &content_type) {
 				Ok(_) => {
 					body_bytes = b"Upload OK".to_vec();

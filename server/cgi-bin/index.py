@@ -15,7 +15,7 @@ def checkSession(cookie: str):
     return res is not None
 
 match method:
-    case "GET":
+    case "GET" | "POST" :
         if checkSession(cookie):
              with open("server/templates/index.html", "r") as file :
                 content = file.read()
@@ -33,10 +33,7 @@ match method:
                 "body": "OK",
             }
             print(json.dumps(response))
-    
-    case "POST":
-        print(json.dumps({"body": "<p>POST</p>"}))
-    
+
     case "DELETE":
         cur.execute("DELETE FROM session WHERE uuid = ?", (cookie,))
         con.commit()
