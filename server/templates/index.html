@@ -1,3 +1,8 @@
 <div>
     <button type="submit" onclick="fetch('index.py', {method: 'DELETE', headers: {'Cookie': document.cookie}}).then(window.location = 'register.py')">log out</button>
 </div>
+<form method="post" enctype="multipart/form-data" action="index.py">
+    <input type="file" multiple="false" accept=".png" />
+    <button type="submit">Send file</button>
+</form>
+<a href="images.py">Check images</a>

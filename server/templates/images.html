@@ -1,0 +1,26 @@
+<script>
+    let compteur = 1
+    function add() {
+        compteur++
+        reload()
+    }
+    function sub() {
+        compteur--
+        if (compteur < 1) {
+            compteur = 1
+        }
+        reload()
+    }
+
+    function reload() {
+        document.getElementById("compteur").innerHTML = compteur
+        document.getElementById("image").setAttribute("src", `medias/${compteur}.png`)
+    }
+</script>
+<img id="image" src="medias/1.png"/>
+<div>
+    <button onclick="sub()"><</button>
+    <span id="compteur">1</span>
+    <button onclick="add()">></button>
+</div>
+<a href="index.py">Go back</a>
