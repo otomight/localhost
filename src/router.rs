@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::from_utf8};
 
 use crate::{config::{Route, ServerConfig}, parse_req::ParsedRequest, setup::ListenerCtx, utils::get_cookie};
 
@@ -13,7 +13,10 @@ pub enum ResponseAction<'a> {
         body: Vec<u8>,
         server: Option<&'a ServerConfig>,
         session: Option<String>
-    }
+    },
+    Upload { body: Vec<u8>,
+        content_type: String
+    },
 }
 
 pub struct ResponseCore<'a> {
@@ -81,10 +84,12 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
     if !path.methods.iter().any(|m| m == req_method) {
         return http_error(405, Some(server)) // Error 405
     }
+
     // Redirect
     if let Some(redirect) = &path.redirect {
         return redirect_301(redirect)
     }
+
     // CGI
     let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script.py"
     let mut script_path = PathBuf::from(path.root.as_ref().unwrap());
@@ -104,6 +109,27 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
             }
         };
     }
+
+    // Upload
+    let ctype_val = headers.iter()
+    .find(|(key, _)| key.eq_ignore_ascii_case("Content-Type"))
+        .map(|(_, value)| value.as_slice());
+
+    if let Some(v) = ctype_val {
+        if let Ok(s) = from_utf8(v) {
+            if s.starts_with("multipart/form-data") {
+                return ResponseCore {
+                    status_code: 201,
+                    status_text: "Created",
+                    action: ResponseAction::Upload {
+                        body: req.body,
+                        content_type: s.to_string(),
+                    },
+                };
+            }
+        }
+    }
+
     // Files and Dirs
     if req_method == "GET" {
         let root = match &path.root {

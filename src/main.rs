@@ -5,6 +5,7 @@ mod setup;
 mod client;
 mod parse_req;
 mod router;
+mod upload_handler;
 
 use std::collections::HashMap;
 use std::os::unix::io::RawFd;

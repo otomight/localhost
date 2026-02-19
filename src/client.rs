@@ -15,6 +15,7 @@ use libc::{
 use crate::global::{BUFFER_SIZE, HTML_DEFAULT_V};
 use crate::parse_req::{BodyMode, ChunkState, ParsedRequest, determine_body_mode, process_chunked};
 use crate::setup::ListenerCtx;
+use crate::upload_handler::handle_multipart;
 use crate::utils::get_error_body;
 use crate::{config, utils};
 use crate::router::{self, ResponseCore, ResponseAction};
@@ -354,6 +355,21 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 					body_bytes = get_error_body(cgi_error_code, cgi_error_msg, server);
 							final_status_code = cgi_error_code;
 							final_status_text = cgi_error_msg;
+				}
+			}
+		},
+		ResponseAction::Upload {
+			body,
+			content_type
+		} => {
+			match handle_multipart(&body, &content_type) {
+				Ok(_) => {
+					body_bytes = b"Upload OK".to_vec();
+				}
+				Err(_) => {
+					final_status_code = 400;
+					final_status_text = "Bad Request";
+					body_bytes = b"Upload Failed".to_vec();
 				}
 			}
 		}
