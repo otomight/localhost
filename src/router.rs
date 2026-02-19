@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::from_utf8};
+use std::{path::PathBuf, str::{from_utf8}};
 
 use crate::{config::{Route, ServerConfig}, parse_req::ParsedRequest, setup::ListenerCtx, utils::get_cookie};
 
@@ -84,6 +84,10 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
     if !path.methods.iter().any(|m| m == req_method) {
         return http_error(405, Some(server)) // Error 405
     }
+    let mut ext = false;
+    if req_path.ends_with(&path.cgi_extension.clone().unwrap()) {
+        ext = true;
+    }
 
     // Redirect
     if let Some(redirect) = &path.redirect {
@@ -110,6 +114,25 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         }
     }
 
+    // CGI
+    let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script.py"
+    let mut script_path = PathBuf::from(path.root.as_ref().unwrap());
+    script_path.push(relative);  // "cgi-bin/script.py"
+
+    if path.cgi_extension.is_some() && path.cgi_path.is_some() && ext {
+        return ResponseCore {
+            status_code: 200,
+            status_text: "OK",
+            action: ResponseAction::Cgi {
+                interpreter: path.cgi_path.clone().unwrap(),
+                path: script_path.to_string_lossy().to_string(),
+                method: req_method.to_string(),
+                body: req.body,
+                server: Some(server),
+                session: session_id,
+            }
+        };
+    }
 
     // Files and Dirs
     if req_method == "GET" {
@@ -159,25 +182,6 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         }
     }
 
-    // CGI
-    let relative = &req_path[path.path.len()..].trim_start_matches('/'); // Slicing to obtain "script.py"
-    let mut script_path = PathBuf::from(path.root.as_ref().unwrap());
-    script_path.push(relative);  // "cgi-bin/script.py"
-
-    if path.cgi_extension.is_some() && path.cgi_path.is_some() {
-        return ResponseCore {
-            status_code: 200,
-            status_text: "OK",
-            action: ResponseAction::Cgi {
-                interpreter: path.cgi_path.clone().unwrap(),
-                path: script_path.to_string_lossy().to_string(),
-                method: req_method.to_string(),
-                body: req.body,
-                server: Some(server),
-                session: session_id,
-            }
-        };
-    }
     return http_error(404, Some(server))
 }
 
