@@ -5,7 +5,9 @@ use crate::{config::{Route, ServerConfig}, parse_req::ParsedRequest, setup::List
 pub enum ResponseAction<'a> {
     ServeFile { path: String },
     Redirect { location: String },
-    AutoIndex { dir: String },
+    AutoIndex { dir: String,
+        path: String
+    },
     Error {server: Option<&'a ServerConfig>},
     Cgi { interpreter:String,
         path: String,
@@ -85,8 +87,10 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
         return http_error(405, Some(server)) // Error 405
     }
     let mut ext = false;
-    if req_path.ends_with(&path.cgi_extension.clone().unwrap()) {
-        ext = true;
+    if let Some(v) = &path.cgi_extension {
+        if req_path.ends_with(v) {
+            ext = true;
+        }
     }
 
     // Redirect
@@ -174,7 +178,7 @@ pub fn router<'a>(listener_ctx: &'a ListenerCtx, req: ParsedRequest) -> Response
                 return ResponseCore {
                     status_code: 200,
                     status_text: "OK",
-                    action: ResponseAction::AutoIndex { dir: fs_path.to_string_lossy().as_ref().to_string() }
+                    action: ResponseAction::AutoIndex { dir: fs_path.to_string_lossy().as_ref().to_string(), path: path.path.clone() }
                 };
             }
             return http_error(403, Some(server))

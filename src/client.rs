@@ -301,8 +301,24 @@ fn prepare_response(epoll_fd: RawFd, fd: RawFd, client: &mut Client, resp: Respo
 		ResponseAction::Redirect { location } => {
 			extra_headers.push_str(&format!("Location: {}\r\n", location));
 		},
-		ResponseAction::AutoIndex { dir } => {
-
+		ResponseAction::AutoIndex { dir, path } => {
+			let cmd = Command::new("ls")
+				.args([&dir])
+				.output();
+			match cmd {
+				Ok(output) => {
+					let result = String::from_utf8(output.stdout.clone()).unwrap();
+					body_bytes.extend_from_slice("<div style='display: flex; flex-direction: column; gap: 5%;'>\n".as_bytes());
+					for file in result.split_ascii_whitespace() {
+						body_bytes.extend_from_slice(format!("<a href={path}{file}>{file}</a>").as_bytes())
+					}
+				}
+				Err(_) => {
+					eprintln!("FAIL DIRECTORY");
+					final_status_code = 500;
+					final_status_text = "Directory error"
+				}
+			}
 		},
 		ResponseAction::Cgi {
 			interpreter,
