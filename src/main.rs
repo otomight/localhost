@@ -98,6 +98,7 @@ fn main() {
 	println!("{:?}", config);
 
 	let listeners = setup::create_listeners(&config);
+	println!("{:?}", listeners);
 	let epoll_fd = setup::setup_epoll(&listeners);
 
 	let mut events = vec![epoll_event { events: 0, u64: 0 }; MAX_EVENTS];
