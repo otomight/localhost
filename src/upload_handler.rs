@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::str::from_utf8;
 
 
 pub fn handle_multipart(body: &[u8], content_type: &str) -> std::io::Result<()> {

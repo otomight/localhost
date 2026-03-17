@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::os::unix::io::RawFd;
 use std::time::{Duration, Instant};
 use libc::{
-	EPOLL_CTL_MOD, EPOLLIN, EPOLLOUT, close, epoll_ctl, epoll_event, epoll_wait
+	EPOLL_CTL_MOD, EPOLLIN, EPOLLOUT, epoll_ctl, epoll_event, epoll_wait
 };
 
 use crate::client::close_client;
@@ -34,7 +34,7 @@ fn event_loop(
 			last_second = Instant::now();
 		}
 
-		let mut nfds: i32 = unsafe {
+		let nfds: i32 = unsafe {
 			// Waiting for readiness events on file descriptors registred with a timeout.
 			epoll_wait(epoll_fd, events.as_mut_ptr(), events.len() as i32, 1000)
 		};
@@ -95,10 +95,10 @@ fn main() {
 			return;
 		}
 	};
-	println!("{:?}", config);
+	// println!("{:?}", config);
 
 	let listeners = setup::create_listeners(&config);
-	println!("{:?}", listeners);
+	// println!("{:?}", listeners);
 	let epoll_fd = setup::setup_epoll(&listeners);
 
 	let mut events = vec![epoll_event { events: 0, u64: 0 }; MAX_EVENTS];

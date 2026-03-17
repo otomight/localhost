@@ -1,13 +1,11 @@
 //! All interactions with the client.
 
 use std::collections::HashMap;
-use std::net::{TcpListener};
 use std::os::fd::IntoRawFd;
 use std::os::unix::io::RawFd;
 use std::fs;
 use std::process::Command;
-use std::str::from_utf8;
-use httparse::{Header, Status};
+use httparse::{Status};
 use libc::{
 	EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
 	EPOLLIN, EPOLLOUT, F_SETFL, O_NONBLOCK, epoll_ctl, epoll_event, fcntl
@@ -18,7 +16,6 @@ use crate::parse_req::{BodyMode, ChunkState, ParsedRequest, determine_body_mode,
 use crate::setup::ListenerCtx;
 use crate::upload_handler::handle_multipart;
 use crate::utils::get_error_body;
-use crate::{config, utils};
 use crate::router::{self, ResponseCore, ResponseAction};
 
 pub struct Client {
@@ -157,7 +154,7 @@ pub fn handle_client_read(
 							client.request = Some(parsed);
 							request_complete = true;
 						}
-						BodyMode::ContentLength(len) => {
+						BodyMode::ContentLength(_) => {
 							let parsed = ParsedRequest {
 								method: Some(method),
 								path: Some(path),
