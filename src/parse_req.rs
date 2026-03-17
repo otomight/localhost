@@ -9,7 +9,7 @@ pub enum BodyMode {
 pub enum ChunkState {
     Size,
     Data { remaining: usize },
-    CRLF,
+    CRLF { terminal: bool },
     Done,
 }
 
@@ -60,7 +60,7 @@ pub fn process_chunked(
                     read_buf.drain(..pos + 2);
 
                     if size == 0 {
-                        *state = ChunkState::CRLF;
+                        *state = ChunkState::CRLF { terminal: true };
                     } else {
                         *state = ChunkState::Data { remaining: size };
                     }
@@ -79,10 +79,10 @@ pub fn process_chunked(
                 *remaining -= to_take;
 
                 if *remaining == 0 {
-                    *state = ChunkState::CRLF;
+                    *state = ChunkState::CRLF { terminal: false };
                 }
             }
-            ChunkState::CRLF => {
+            ChunkState::CRLF { terminal } => {
                 if read_buf.len() < 2 {
                     return Ok(false);
                 }
@@ -92,7 +92,11 @@ pub fn process_chunked(
                 }
 
                 read_buf.drain(..2);
-                *state = ChunkState::Size;
+                if terminal {
+                    *state = ChunkState::Done;
+                } else {
+                    *state = ChunkState::Size;
+                }
             }
             ChunkState::Done => {
                 return Ok(true);
