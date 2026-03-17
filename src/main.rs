@@ -45,7 +45,7 @@ fn event_loop(
 			let ev = events[i].events;
 			nb_event += 1;
 
-			if nb_event < RATELIMITER_REQUEST_NUMBER {
+			if RATELIMITER_REQUEST_NUMBER == 0 || nb_event < RATELIMITER_REQUEST_NUMBER {
 				// Check if the event is related to a listener.
 				if let Some(listener_ctx) = listeners.get(&fd) {
 					client::handle_listener_event(epoll_fd, listener_ctx, fd, clients);
